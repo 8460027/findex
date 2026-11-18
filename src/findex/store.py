@@ -1,181 +1,222 @@
-﻿import argparse
+﻿from __future__ import annotations
+
+import argparse
 import json
 import pickle
 import struct
+import sys
 import time
 from array import array
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Literal
 
-from findex.models import DocMeta, InvertedIndex, Posting
+from findex.decorators import timed
+from findex.index import Index, build_index
+from findex.models import DocMeta, Posting
 
-# SECURITY WARNING:
-# pickle.load() executes arbitrary Python bytecode embedded in the stream.
-# Never call load_pickle() on files downloaded from untrusted sources or over a network.
-# Use it strictly for index files generated locally by your own process.
+FormatType = Literal["pickle", "json", "binary"]
 
-
-def save_pickle(obj: object, path: Path) -> float:
-    t0 = time.perf_counter()
-    with path.open("wb") as f:
-        pickle.dump(obj, f, protocol=pickle.HIGHEST_PROTOCOL)
-    return time.perf_counter() - t0
+MAGIC = b"FIDX0002"
+HEADER_STRUCT = struct.Struct("<8sI")
 
 
-def load_pickle(path: Path) -> object:
-    with path.open("rb") as f:
-        return pickle.load(f)
+def save_index(index: Index, path: str | Path, fmt: FormatType = "binary") -> None:
+    """Persist an Index to disk using pickle, json, or custom binary format."""
+    target = Path(path)
+
+    if fmt == "pickle":
+        with target.open("wb") as f:
+            pickle.dump(index, f, protocol=pickle.HIGHEST_PROTOCOL)
+        return
+
+    if fmt == "json":
+        payload = {
+            "doc_lengths": {str(k): v for k, v in index.doc_lengths.items()},
+            "doc_meta": {
+                str(k): {"title": m.title, "path": m.path} for k, m in index.doc_meta.items()
+            },
+            "postings": {
+                term: [[p.doc_id, p.tf, list(p.positions)] for p in plist]
+                for term, plist in index.postings.items()
+            },
+        }
+        target.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        return
+
+    if fmt == "binary":
+        all_doc_ids = array("I")
+        all_tfs = array("I")
+        all_pos_counts = array("I")
+        all_positions = array("I")
+
+        term_table: dict[str, tuple[int, int]] = {}
+        offset = 0
+        for term, plist in index.postings.items():
+            length = len(plist)
+            term_table[term] = (offset, length)
+            for p in plist:
+                all_doc_ids.append(p.doc_id)
+                all_tfs.append(p.tf)
+                all_pos_counts.append(len(p.positions))
+                if p.positions:
+                    all_positions.extend(p.positions)
+            offset += length
+
+        header_obj = {
+            "doc_lengths": {str(k): v for k, v in index.doc_lengths.items()},
+            "doc_meta": {
+                str(k): [m.title, m.path] for k, m in index.doc_meta.items()
+            },
+            "terms": term_table,
+            "total_postings": offset,
+            "total_positions": len(all_positions),
+        }
+        header_bytes = json.dumps(header_obj, ensure_ascii=False, separators=(",", ":")).encode(
+            "utf-8"
+        )
+
+        with target.open("wb") as f:
+            f.write(HEADER_STRUCT.pack(MAGIC, len(header_bytes)))
+            f.write(header_bytes)
+            all_doc_ids.tofile(f)
+            all_tfs.tofile(f)
+            all_pos_counts.tofile(f)
+            all_positions.tofile(f)
+        return
+
+    raise ValueError(f"Unsupported format: {fmt}")
 
 
-def save_json(index: InvertedIndex, path: Path) -> float:
-    t0 = time.perf_counter()
-    payload = {
-        "with_positions": index.with_positions,
-        "doc_lengths": index.doc_lengths,
-        "doc_meta": {
-            str(k): {"path": v.path, "title": v.title}
-            for k, v in index.doc_meta.items()
-        },
-        "postings": {
+@timed
+def load_index(path: str | Path, fmt: FormatType = "binary") -> Index:
+    """Load an Index from disk."""
+    source = Path(path)
+
+    if fmt == "pickle":
+        # SECURITY NOTE: pickle.load executes arbitrary opcodes; never load untrusted files.
+        with source.open("rb") as f:
+            loaded = pickle.load(f)
+        if isinstance(loaded, Index):
+            return loaded
+        return Index(
+            postings=loaded.postings,
+            doc_lengths=loaded.doc_lengths,
+            doc_meta=loaded.doc_meta,
+        )
+
+    if fmt == "json":
+        raw = json.loads(source.read_text(encoding="utf-8"))
+        doc_lengths = {int(k): int(v) for k, v in raw["doc_lengths"].items()}
+        doc_meta = {
+            int(k): DocMeta(doc_id=int(k), title=v["title"], path=v["path"])
+            for k, v in raw["doc_meta"].items()
+        }
+        postings = {
             term: [
-                [p.doc_id, p.tf, list(p.positions)] if index.with_positions else [p.doc_id, p.tf]
-                for p in plist
+                Posting(doc_id=item[0], tf=item[1], positions=tuple(item[2]))
+                for item in plist
             ]
-            for term, plist in index.postings.items()
-        },
-    }
-    with path.open("w", encoding="utf-8") as f:
-        json.dump(payload, f)
-    return time.perf_counter() - t0
+            for term, plist in raw["postings"].items()
+        }
+        return Index(postings=postings, doc_lengths=doc_lengths, doc_meta=doc_meta)
 
-
-def load_json(path: Path) -> InvertedIndex:
-    with path.open("r", encoding="utf-8") as f:
-        payload = json.load(f)
-    with_positions = payload["with_positions"]
-    doc_lengths = {int(k): v for k, v in payload["doc_lengths"].items()}
-    doc_meta = {
-        int(k): DocMeta(doc_id=int(k), path=v["path"], title=v["title"])
-        for k, v in payload["doc_meta"].items()
-    }
-    postings = {}
-    for term, plist in payload["postings"].items():
-        if with_positions:
-            postings[term] = [Posting(p[0], p[1], tuple(p[2])) for p in plist]
-        else:
-            postings[term] = [Posting(p[0], p[1]) for p in plist]
-    return InvertedIndex(
-        postings=postings,
-        doc_lengths=doc_lengths,
-        doc_meta=doc_meta,
-        with_positions=with_positions,
-    )
-
-
-def save_binary(index: InvertedIndex, path: Path) -> float:
-    """Compact binary format: [8-byte header_len][JSON header][contiguous uint32 arrays]."""
-    t0 = time.perf_counter()
-    term_offsets: dict[str, tuple[int, int]] = {}
-    blob = bytearray()
-
-    for term, plist in index.postings.items():
-        offset = len(blob)
-        count = len(plist)
-        arr = array("I")
-        for p in plist:
-            arr.append(p.doc_id)
-            arr.append(p.tf)
-        blob.extend(arr.tobytes())
-        term_offsets[term] = (offset, count)
-
-    header = {
-        "doc_lengths": index.doc_lengths,
-        "doc_meta": {
-            str(k): {"path": v.path, "title": v.title}
-            for k, v in index.doc_meta.items()
-        },
-        "terms": term_offsets,
-    }
-    header_bytes = json.dumps(header).encode("utf-8")
-
-    with path.open("wb") as f:
-        f.write(struct.pack("<Q", len(header_bytes)))
-        f.write(header_bytes)
-        f.write(blob)
-
-    return time.perf_counter() - t0
-
-
-def load_binary(path: Path) -> InvertedIndex:
-    raw = path.read_bytes()
-    (header_len,) = struct.unpack("<Q", raw[:8])
-    header = json.loads(raw[8 : 8 + header_len].decode("utf-8"))
-    data_view = memoryview(raw)[8 + header_len :]
-
-    doc_lengths = {int(k): v for k, v in header["doc_lengths"].items()}
-    doc_meta = {
-        int(k): DocMeta(doc_id=int(k), path=v["path"], title=v["title"])
-        for k, v in header["doc_meta"].items()
-    }
-    postings: dict[str, list[Posting]] = {}
-    for term, (offset, count) in header["terms"].items():
-        arr = array("I")
-        arr.frombytes(data_view[offset : offset + count * 8])
-        postings[term] = [
-            Posting(arr[i], arr[i + 1]) for i in range(0, len(arr), 2)
-        ]
-
-    return InvertedIndex(
-        postings=postings,
-        doc_lengths=doc_lengths,
-        doc_meta=doc_meta,
-        with_positions=False,
-    )
-
-
-def save_index(index: InvertedIndex, path: Path, fmt: str = "pickle") -> float:
-    if fmt == "pickle":
-        return save_pickle(index, path)
-    if fmt == "json":
-        return save_json(index, path)
     if fmt == "binary":
-        return save_binary(index, path)
-    raise ValueError(f"Unknown format: {fmt}")
+        with source.open("rb") as f:
+            prefix = f.read(HEADER_STRUCT.size)
+            magic, header_len = HEADER_STRUCT.unpack(prefix)
+            if magic != MAGIC:
+                raise ValueError(f"Invalid index file magic: {magic!r}")
+            header_obj = json.loads(f.read(header_len).decode("utf-8"))
+
+            total_postings: int = header_obj["total_postings"]
+            total_positions: int = header_obj["total_positions"]
+
+            all_doc_ids = array("I")
+            all_doc_ids.fromfile(f, total_postings)
+
+            all_tfs = array("I")
+            all_tfs.fromfile(f, total_postings)
+
+            all_pos_counts = array("I")
+            all_pos_counts.fromfile(f, total_postings)
+
+            all_positions = array("I")
+            if total_positions > 0:
+                all_positions.fromfile(f, total_positions)
+
+        doc_lengths = {int(k): int(v) for k, v in header_obj["doc_lengths"].items()}
+        doc_meta = {
+            int(k): DocMeta(doc_id=int(k), title=v[0], path=v[1])
+            for k, v in header_obj["doc_meta"].items()
+        }
+
+        postings: dict[str, list[Posting]] = {}
+        pos_cursor = 0
+        for term, (offset, length) in header_obj["terms"].items():
+            plist: list[Posting] = []
+            for i in range(offset, offset + length):
+                p_count = all_pos_counts[i]
+                if p_count > 0:
+                    positions = tuple(all_positions[pos_cursor : pos_cursor + p_count])
+                    pos_cursor += p_count
+                else:
+                    positions = ()
+                plist.append(Posting(doc_id=all_doc_ids[i], tf=all_tfs[i], positions=positions))
+            postings[term] = plist
+
+        return Index(postings=postings, doc_lengths=doc_lengths, doc_meta=doc_meta)
+
+    raise ValueError(f"Unsupported format: {fmt}")
 
 
-def load_index(path: Path, fmt: str = "pickle") -> InvertedIndex:
-    if fmt == "pickle":
-        loaded = load_pickle(path)
-        assert isinstance(loaded, InvertedIndex)
-        return loaded
-    if fmt == "json":
-        return load_json(path)
-    if fmt == "binary":
-        return load_binary(path)
-    raise ValueError(f"Unknown format: {fmt}")
+@contextmanager
+def open_index(path: str | Path, fmt: FormatType = "binary") -> Iterator[Index]:
+    """Context manager that loads an Index and guarantees cleanup on exit."""
+    index = load_index(path, fmt=fmt)
+    try:
+        yield index
+    finally:
+        index.close()
 
 
-def benchmark_formats(index: InvertedIndex) -> None:
-    tmp_dir = Path(".bench_tmp")
-    tmp_dir.mkdir(exist_ok=True)
+def benchmark_formats(corpus_root: str | Path, out_dir: str | Path = ".bench_tmp") -> None:
+    """Compare file size, save time, and load time across pickle, json, and binary."""
+    index = build_index(corpus_root)
+    tmp = Path(out_dir)
+    tmp.mkdir(parents=True, exist_ok=True)
 
-    print("\n| Format | File size | Save time | Load time |")
-    print("|---|---|---|---|")
-    for fmt, ext in [("pickle", "pkl"), ("json", "json"), ("binary", "bin")]:
-        out_path = tmp_dir / f"idx.{ext}"
-        st = save_index(index, out_path, fmt=fmt)
+    formats: list[tuple[FormatType, str]] = [
+        ("pickle", "index.pkl"),
+        ("json", "index.json"),
+        ("binary", "index.bin"),
+    ]
+
+    header = f"{'Format':<10} | {'File size':>10} | {'Save time':>10} | {'Load time':>10}"
+    print(header)
+    print("-" * len(header))
+
+    for fmt, filename in formats:
+        target = tmp / filename
         t0 = time.perf_counter()
-        _ = load_index(out_path, fmt=fmt)
-        lt = time.perf_counter() - t0
-        sz = out_path.stat().st_size / 1e6
-        print(f"| `{fmt}` | {sz:.2f} MB | {st:.4f} s | {lt:.4f} s |")
+        save_index(index, target, fmt=fmt)
+        save_s = time.perf_counter() - t0
+
+        t1 = time.perf_counter()
+        _ = load_index(target, fmt=fmt)
+        load_s = time.perf_counter() - t1
+
+        size_mb = target.stat().st_size / (1024 * 1024)
+        print(f"{fmt:<10} | {size_mb:>7.2f} MB | {save_s:>8.4f} s | {load_s:>8.4f} s")
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description="Benchmark index serialization formats.")
+    parser.add_argument("corpus", type=Path, help="Path to corpus directory")
+    args = parser.parse_args(argv)
+    benchmark_formats(args.corpus)
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Benchmark serialization formats.")
-    parser.add_argument("corpus", type=Path)
-    args = parser.parse_args()
-    from findex.index import build_index
-
-    idx = build_index(args.corpus)
-    benchmark_formats(idx)
-
+    main(sys.argv[1:])

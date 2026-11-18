@@ -1,39 +1,65 @@
-﻿# findex — Search Engine in Python
+# findex — Search Engine in Python
 
-Memory-efficient streaming corpus loader, Unicode tokenizer, inverted index, Boolean & phrase query parser, and TF-IDF / BM25 ranked search engine.
+[![CI](https://github.com/8460027/findex/actions/workflows/ci.yml/badge.svg)](https://github.com/8460027/findex/actions/workflows/ci.yml)
 
-## Setup & Usage
+Memory-efficient streaming corpus loader, Unicode tokenizer, inverted index, Boolean & phrase query parser, TF-IDF / BM25 ranked search engine, and installable `typer` + `rich` CLI.
 
+## Installation & Quick Start
+
+### Install as a CLI tool (`uv`)
+```bash
+# From local repository
+uv tool install .
+
+# Or directly from a built wheel / GitHub Release asset
+uv tool install dist/findex-0.4.0-py3-none-any.whl
+```
+
+### CLI Usage (`findex`)
+```bash
+# 1. Build and persist an inverted index with token positions
+findex index data/ --out index.bin --positions
+
+# 2. Ranked BM25 search with rich table output and highlighted snippets
+findex search index.bin "(python OR search) NOT java" --scorer bm25 --k 5
+
+# 3. Machine-readable JSON Lines output for piping
+findex search index.bin "python" --scorer tfidf --k 5 --json
+
+# 4. Inspect corpus or index statistics
+findex stats data/ --limit 100
+findex stats index.bin
+
+# 5. Diagnostic logging on stderr (-v for INFO, -vv for DEBUG timings)
+findex -vv search index.bin "python"
+```
+
+### Development & Quality Checks
 ```bash
 uv sync
-uv run pytest
 uv run ruff check .
+uv run ruff format --check .
+uv run pyright
+uv run pytest -v --cov=findex --cov-report=term-missing
 ```
 
-### Lab 01 — Corpus Stats
-```powershell
-$env:PYTHONPATH="src"
-uv run python -m findex.stats data/ --limit 100
-```
+---
 
-### Lab 02 — Build & Search Inverted Index
-```powershell
-$env:PYTHONPATH="src"
+## Lab 04 — Typing, Testing, Packaging, and CLI
 
-# Build and persist index (formats: pickle, json, binary)
-uv run python -m findex.index data/ --out index.bin --format binary --positions
+### Static Typing (`pyright --strict`)
+- Configured `[tool.pyright] typeCheckingMode = "strict"` in `pyproject.toml` with **0 errors, 0 warnings**.
+- Structural `@runtime_checkable class Scorer(Protocol)` verified statically for both `BM25` and `TfIdf` without inheritance.
+- Generator pipelines typed with `Iterator[Document]` / `Iterator[str]`; decorators typed with PEP 695 `ParamSpec` (`def timed[**P, R]`); structured dictionaries typed with `TypedDict` and `NamedTuple`.
 
-# Legacy Boolean search (engines: merge, set)
-uv run python -m findex.search index.bin "python OR search" --format binary --mode boolean --engine merge
-```
-
-### Lab 03 — Ranked Search (BM25 / TF-IDF) & Snippets
-```powershell
-$env:PYTHONPATH="src"
-
-# Ranked search with BM25, query AST parser, and highlighted snippets
-uv run python -m findex.search index.bin "(python OR search) NOT java" --scorer bm25 --k 5 --snippets --verbose
-```
+### Test Suite & Coverage (`pytest` + `hypothesis`)
+- **33 automated tests** (`100% passing`), including:
+  - **5 Hypothesis property-based tests**: tokenizer non-empty/casefold invariants, tokenizer idempotence, two-pointer merge vs `set` oracle, binary/JSON/pickle index round-trip equality, and query AST render/parse round-trip.
+  - **CLI integration tests** via `typer.testing.CliRunner` covering `index`, `search` (Rich table & `--json` lines), `stats`, `-vv` stderr logging, and nonzero exit codes on expected errors.
+  - **Markers**: `@pytest.mark.slow` isolates larger corpus tests (skip locally with `pytest -m "not slow"`).
+- **Code coverage (`pytest --cov=findex`): 76% overall**
+  - High coverage on core production modules: `cli.py` (**95%**), `tokenize.py` (**100%**), `models.py` (**100%**), `decorators.py` (**100%**), `query.py` (**87%**), `ranking.py` (**85%**), `snippets.py` (**84%**), `store.py` (**83%**).
+  - *Uncovered lines (24%)*: legacy Lab 01–02 CLI `argparse` entry points and memory/speed benchmark helpers (`run_memory_study`, `run_benchmark`, `benchmark_formats`) in `index.py`, `search.py`, and `stats.py`, which are manual CLI profiling scripts rather than library/CLI runtime paths.
 
 ---
 
@@ -64,11 +90,6 @@ Run `uv run python -m findex.index data/ --memory-study` to reproduce:
 
 *Optional positions cost (`--positions`):* Peak memory = **253.65 MB**, File size = **21.71 MB** (storing per-occurrence offset tuples multiplies pointer and tuple overhead).
 
-**Where the bytes go:**
-- **Plain `@dataclass`:** Every `Posting` allocates a full Python object header plus a dynamic per-instance `__dict__` (~100+ bytes overhead per posting) and two 28-byte `int` references.
-- **`slots=True`:** Eliminates the per-instance `__dict__`, storing fields in fixed C-level struct slots and shrinking the serialized file (`0.36 MB` vs `0.43 MB`). (The slightly higher build peak `4.49 MB` reflects also holding `doc_lengths` and `doc_meta` in `InvertedIndex`).
-- **`array('I')` pairs:** Eliminates per-posting Python objects entirely, packing `doc_id` and `tf` as contiguous 4-byte unsigned integers (`uint32`), cutting both RAM (`2.27 MB`) and disk footprint (`0.23 MB`) roughly in half.
-
 ### Serialization Formats Benchmark
 
 Run `uv run python -m findex.store data/` to reproduce:
@@ -93,8 +114,6 @@ Run `uv run python -m findex.search index.bin --benchmark` (2000 iterations per 
 | Rarest (AND) | 80.15 ms | 96.17 ms | 1.20x |
 | Rarest (OR) | 87.02 ms | 99.85 ms | 1.15x |
 
-**Analysis:** Both algorithms run in $O(|A| + |B|)$ time. On long postings lists (`df=1500`), Python's built-in `set` intersection/union wins because its loop runs in C, whereas the two-pointer `merge` runs in interpreted Python bytecode. On short postings lists (`df=1`), two-pointer `merge` is **1.15x–1.20x faster** because it avoids hash table allocation and post-merge sorting overhead, while also streaming naturally without extra memory.
-
 ---
 
 ## Lab 03 — Ranking and the Object Model
@@ -104,7 +123,7 @@ Run `uv run python -m findex.search index.bin --benchmark` (2000 iterations per 
 - **Context Manager (`store.py`)**: `@contextmanager def open_index(path, fmt="binary")` ensures `index.close()` executes in `finally` even when exceptions occur.
 - **Swappable `Scorer` Protocol (`ranking.py`)**: Structural `@runtime_checkable class Scorer(Protocol)` with `TfIdf` and `BM25(k1=1.5, b=0.75)` callable implementations; top-`k` results are extracted via `heapq.nlargest` into ordered `SearchResult` dataclasses.
 - **Recursive-Descent Query Parser (`query.py`)**: Parses implicit `AND`, `OR`, `NOT`, parentheses, and positional `"exact phrases"` into composable AST nodes (`Term`, `Phrase`, `And`, `Or`, `Not`) overloading `&`, `|`, and `~`.
-- **Decorators, Caching & Snippets (`decorators.py`, `search.py`, `snippets.py`)**: `@timed` (preserving metadata via `functools.wraps`) logs execution latency; `@functools.lru_cache(maxsize=256)` caches ranked query results; `build_snippet` extracts a ±80-character window around the first match and highlights terms as `[term]`.
+- **Decorators, Caching & Snippets (`decorators.py`, `search.py`, `snippets.py`)**: `@timed` (preserving metadata via `functools.wraps`) logs execution latency at `DEBUG`; `@functools.lru_cache(maxsize=256)` caches ranked query results; `build_snippet` extracts a ±80-character window around the first match and highlights terms as `[term]`.
 
 ### Ranking Sanity Checks (Corpus `data/`)
 
@@ -125,8 +144,6 @@ Top result: [0] doc_0000.txt (score=6.9084)
 ```
 
 ### Precision@5 Evaluation (10 Queries: TF-IDF vs BM25)
-
-*Note: For queries with 1 ground-truth document (`rel=1`), the maximum possible `P@5` is `1/5 = 0.20`; for `rel=2`, the maximum possible `P@5` is `2/5 = 0.40`. Both scorers placed all relevant documents at the top ranks.*
 
 | Query | Relevant docs | TF-IDF P@5 | BM25 P@5 |
 |---|---|---|---|

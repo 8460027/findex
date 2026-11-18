@@ -1,4 +1,4 @@
-﻿import re
+import re
 import unicodedata
 from collections.abc import Iterator
 

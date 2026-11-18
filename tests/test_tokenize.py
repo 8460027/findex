@@ -1,37 +1,49 @@
-﻿import inspect
+from __future__ import annotations
+
+import types
+
+import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 from findex.tokenize import tokenize
 
 
-def test_is_generator():
-    assert inspect.isgeneratorfunction(tokenize)
+def test_is_generator() -> None:
+    gen = tokenize("hello world")
+    assert isinstance(gen, types.GeneratorType)
+    assert list(gen) == ["hello", "world"]
 
 
-def test_empty_and_whitespace():
-    assert list(tokenize("")) == []
-    assert list(tokenize("   \n\t  ")) == []
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("", []),
+        ("   \t\n  ", []),
+        ("Python PYTHON python", ["python", "python", "python"]),
+        ("Cafe\u0301 vs Caf\u00e9", ["café", "vs", "café"]),
+        ("П'ять м'ячів — це не п’ять яблук!", ["п'ять", "м'ячів", "це", "не", "п’ять", "яблук"]),
+        (
+            "state-of-the-art, well-known_test --foo-- _bar_",
+            ["state-of-the-art", "well-known", "test", "foo", "bar"],
+        ),
+        ("don't can't it's", ["don't", "can't", "it's"]),
+        ("123 45.67 v0.4.0", ["123", "45", "67", "v0", "4", "0"]),
+    ],
+)
+def test_tokenize_cases(raw: str, expected: list[str]) -> None:
+    assert list(tokenize(raw)) == expected
 
 
-def test_mixed_case_and_casefold():
-    assert list(tokenize("Python SEARCH Engine")) == ["python", "search", "engine"]
-    assert list(tokenize("Straße")) == ["strasse"]
+@given(st.text())
+def test_prop_no_empty_tokens_and_casefolded(text: str) -> None:
+    for tok in tokenize(text):
+        assert tok != ""
+        assert tok == tok.casefold()
 
 
-def test_unicode_nfc_normalization():
-    composed = "café"
-    decomposed = "cafe\u0301"
-    assert list(tokenize(composed)) == list(tokenize(decomposed)) == ["café"]
-
-
-def test_cyrillic_and_apostrophes():
-    text = "П'ять великих м’ячів у Києві!"
-    assert list(tokenize(text)) == ["п'ять", "великих", "м’ячів", "у", "києві"]
-
-
-def test_hyphens_and_punctuation():
-    text = "State-of-the-art — NLP, v2.0 (2026)!"
-    assert list(tokenize(text)) == ["state-of-the-art", "nlp", "v2", "0", "2026"]
-
-
-def test_english_contractions():
-    assert list(tokenize("Don't stop believing.")) == ["don't", "stop", "believing"]
+@given(st.text())
+def test_prop_tokenize_idempotent(text: str) -> None:
+    first = list(tokenize(text))
+    second = list(tokenize(" ".join(first)))
+    assert second == first

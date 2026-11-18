@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import argparse
 import functools
@@ -96,7 +96,7 @@ def build_index(
     doc_lengths: dict[int, int] = {}
     doc_meta: dict[int, DocMeta] = {}
 
-    for doc_id, (doc_name, doc_path, text) in enumerate(iter_documents(root)):
+    for doc_id, (doc_name, doc_path, text) in enumerate(iter_documents(root, limit=limit)):
         tokens = list(tokenize(text))
         doc_lengths[doc_id] = len(tokens)
         doc_meta[doc_id] = DocMeta(doc_id=doc_id, title=doc_name, path=str(doc_path))

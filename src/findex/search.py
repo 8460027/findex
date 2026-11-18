@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import argparse
 import functools
@@ -7,7 +7,15 @@ import sys
 import time
 import tracemalloc
 from pathlib import Path
-from typing import Literal
+from typing import Literal, NamedTuple
+
+
+class CacheStats(NamedTuple):
+    hits: int
+    misses: int
+    maxsize: int
+    currsize: int
+
 
 from findex.decorators import timed
 from findex.index import Index
@@ -127,7 +135,9 @@ def boolean_search_set(query: str, index: Index) -> list[int]:
     return sorted(result_set)
 
 
-def evaluate_query(index: Index, query: str, engine: Literal["merge", "set"] = "merge") -> list[int]:
+def evaluate_query(
+    index: Index, query: str, engine: Literal["merge", "set"] = "merge"
+) -> list[int]:
     """Backward-compatible Boolean query evaluator for Lab 02."""
     if "NOT" in query or "(" in query or '"' in query:
         return sorted(parse_query(query).evaluate(index))
@@ -199,13 +209,12 @@ class SearchEngine:
                 if (with_snippets and meta is not None)
                 else ""
             )
-            results.append(
-                SearchResult(score=score, doc_id=doc_id, title=title, snippet=snippet)
-            )
+            results.append(SearchResult(score=score, doc_id=doc_id, title=title, snippet=snippet))
         return results
 
-    def cache_info(self) -> functools._CacheInfo:
-        return self._cached_rank.cache_info()
+    def cache_info(self) -> CacheStats:
+        info = self._cached_rank.cache_info()
+        return CacheStats(info.hits, info.misses, info.maxsize or 0, info.currsize)
 
 
 def run_benchmark(index: Index, iterations: int = 2000) -> None:

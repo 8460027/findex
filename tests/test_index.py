@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 
 from findex.index import DocMeta, Posting, build_index
 from findex.search import evaluate_query

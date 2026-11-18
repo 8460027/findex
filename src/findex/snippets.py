@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import re
 import unicodedata
@@ -44,7 +44,9 @@ def build_snippet(
     suffix = "..." if end < len(clean_text) else ""
 
     pattern = re.compile(
-        r"\b(" + "|".join(re.escape(t) for t in sorted(unique_terms, key=len, reverse=True)) + r")\b",
+        r"\b("
+        + "|".join(re.escape(t) for t in sorted(unique_terms, key=len, reverse=True))
+        + r")\b",
         flags=re.IGNORECASE | re.UNICODE,
     )
     highlighted = pattern.sub(r"[\1]", snippet)

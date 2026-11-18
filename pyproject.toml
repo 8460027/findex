@@ -1,13 +1,19 @@
 [project]
 name = "findex"
-version = "0.1.0"
-description = "Add your description here"
+version = "0.4.0"
+description = "Memory-efficient streaming search engine with BM25/TF-IDF ranking and rich CLI"
 readme = "README.md"
 authors = [
     { name = "Марія", email = "8460027@stud.kai.edu.ua" }
 ]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "rich>=15.0.0",
+    "typer>=0.29.2",
+]
+
+[project.scripts]
+findex = "findex.cli:app"
 
 [build-system]
 requires = ["uv_build>=0.13.9,<0.14.0"]
@@ -15,9 +21,25 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "hypothesis>=6.170.15",
+    "pyright>=1.1.414",
     "pytest>=9.2.0",
+    "pytest-cov>=7.1.0",
     "ruff>=0.17.5",
 ]
 
+[tool.pyright]
+pythonVersion = "3.12"
+typeCheckingMode = "strict"
+include = ["src"]
+extraPaths = ["src"]
+
 [tool.pytest.ini_options]
 pythonpath = ["src"]
+markers = [
+    "slow: marks tests that take more than a second (deselect with '-m \"not slow\"')",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"

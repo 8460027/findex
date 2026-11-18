@@ -1,28 +1,35 @@
-﻿import argparse
+from __future__ import annotations
+
+import argparse
 import time
 import tracemalloc
 from collections import Counter
-from itertools import islice
 from pathlib import Path
+from typing import TypedDict
 
 from findex.corpus import iter_documents
 from findex.tokenize import tokenize
 
 
-def run_lazy_stats(root: Path, limit: int | None = None) -> dict:
+class CorpusStats(TypedDict):
+    doc_count: int
+    total_tokens: int
+    vocab_size: int
+    top_50: list[tuple[str, int]]
+    elapsed: float
+    peak_mb: float
+
+
+def run_lazy_stats(root: str | Path, limit: int | None = None) -> CorpusStats:
     """Compute corpus statistics in a single lazy pass."""
     tracemalloc.start()
     t0 = time.perf_counter()
-
-    docs = iter_documents(root)
-    if limit is not None:
-        docs = islice(docs, limit)
 
     doc_count = 0
     total_tokens = 0
     vocab: Counter[str] = Counter()
 
-    for doc in docs:
+    for doc in iter_documents(root, limit=limit):
         doc_count += 1
         for tok in tokenize(doc.text):
             total_tokens += 1
@@ -42,16 +49,12 @@ def run_lazy_stats(root: Path, limit: int | None = None) -> dict:
     }
 
 
-def run_eager_stats(root: Path, limit: int | None = None) -> dict:
+def run_eager_stats(root: str | Path, limit: int | None = None) -> CorpusStats:
     """Deliberately materialize all documents and token lists in memory."""
     tracemalloc.start()
     t0 = time.perf_counter()
 
-    docs_iter = iter_documents(root)
-    if limit is not None:
-        docs_iter = islice(docs_iter, limit)
-
-    docs_list = list(docs_iter)
+    docs_list = list(iter_documents(root, limit=limit))
     all_tokens = [list(tokenize(doc.text)) for doc in docs_list]
 
     vocab: Counter[str] = Counter()
@@ -91,8 +94,14 @@ def main() -> None:
 
         print("| Version | Documents | Peak memory | Elapsed |")
         print("|---|---|---|---|")
-        print(f"| eager (lists) | {eager['doc_count']} | {eager['peak_mb']:.2f} MB | {eager['elapsed']:.3f} s |")
-        print(f"| lazy (generators) | {lazy['doc_count']} | {lazy['peak_mb']:.2f} MB | {lazy['elapsed']:.3f} s |")
+        print(
+            f"| eager (lists) | {eager['doc_count']} | "
+            f"{eager['peak_mb']:.2f} MB | {eager['elapsed']:.3f} s |"
+        )
+        print(
+            f"| lazy (generators) | {lazy['doc_count']} | "
+            f"{lazy['peak_mb']:.2f} MB | {lazy['elapsed']:.3f} s |"
+        )
         return
 
     res = run_lazy_stats(args.corpus, args.limit)

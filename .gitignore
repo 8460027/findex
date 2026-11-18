@@ -10,3 +10,7 @@ wheels/
 .venv
 
 data/
+
+.bench_tmp/
+*.bin
+*.pkl

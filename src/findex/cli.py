@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -11,10 +12,13 @@ from typing import Annotated
 
 import typer
 from rich.console import Console
+from rich.live import Live
 from rich.markup import escape
+from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from rich.table import Table
 
+from findex.crawler.crawl import CrawlStats, crawl
 from findex.index import BuildTiming, ExecutorType, build_index
 from findex.query import QuerySyntaxError
 from findex.search import SearchEngine
@@ -314,6 +318,99 @@ def stats_cmd(
     except (ValueError, TypeError, OSError) as exc:
         stderr_console.print(f"[bold red]Error:[/bold red] Failed to inspect index: {exc}")
         raise typer.Exit(code=1) from exc
+
+
+@app.command("crawl")
+def crawl_cmd(
+    seed: Annotated[str, typer.Argument(help="Seed URL to start crawling from.")],
+    max_pages: Annotated[
+        int, typer.Option("--max-pages", "-n", min=1, help="Maximum number of pages to fetch.")
+    ] = 500,
+    concurrency: Annotated[
+        int, typer.Option("--concurrency", "-c", min=1, help="Maximum concurrent requests.")
+    ] = 10,
+    per_host: Annotated[
+        int, typer.Option("--per-host", min=1, help="Maximum concurrent requests per host.")
+    ] = 2,
+    delay: Annotated[
+        float,
+        typer.Option("--delay", min=0.0, help="Minimum delay (s) between requests to same host."),
+    ] = 0.1,
+    domain: Annotated[
+        list[str] | None,
+        typer.Option("--domain", "-d", help="Allowed domain(s) (defaults to seed host)."),
+    ] = None,
+    out: Annotated[Path, typer.Option("--out", "-o", help="Output JSONL corpus file path.")] = Path(
+        "data/crawl.jsonl"
+    ),
+    log_file: Annotated[Path, typer.Option("--log", help="Per-URL crawl log file path.")] = Path(
+        "crawl.log"
+    ),
+) -> None:
+    """Politely crawl web pages asynchronously and stream them to a JSONL corpus."""
+    out.parent.mkdir(parents=True, exist_ok=True)
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+
+    file_handler = logging.FileHandler(log_file, mode="w", encoding="utf-8")
+    file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    crawler_logger = logging.getLogger("findex.crawler")
+    crawler_logger.setLevel(logging.INFO)
+    crawler_logger.addHandler(file_handler)
+
+    stats = CrawlStats()
+    t0 = time.perf_counter()
+
+    def _render_panel() -> Panel:
+        elapsed = max(0.001, time.perf_counter() - t0)
+        rate = stats.pages_fetched / elapsed
+        mb = stats.bytes_downloaded / (1024 * 1024)
+        body = (
+            f"[bold cyan]Seed:[/bold cyan] {escape(seed)}\n"
+            f"[bold green]Pages fetched:[/bold green] {stats.pages_fetched} / {max_pages}  "
+            f"([bold]{rate:.1f} pages/s[/bold], {mb:.2f} MB)\n"
+            f"[bold yellow]In-flight:[/bold yellow] {stats.in_flight}  |  "
+            f"[bold magenta]Queue depth:[/bold magenta] {stats.queue_depth}  |  "
+            f"[bold red]Errors:[/bold red] {stats.errors}"
+        )
+        return Panel(body, title="findex async crawler", border_style="cyan")
+
+    async def _run_crawl() -> None:
+        with (
+            out.open("w", encoding="utf-8") as f,
+            Live(_render_panel(), console=stderr_console, refresh_per_second=10) as live,
+        ):
+            async for page in crawl(
+                [seed],
+                max_pages=max_pages,
+                concurrency=concurrency,
+                per_host=per_host,
+                per_host_delay=delay,
+                allowed_domains=domain,
+                stats=stats,
+            ):
+                record = {
+                    "id": page.url,
+                    "url": page.url,
+                    "title": page.title,
+                    "text": page.text,
+                    "fetched_at": page.fetched_at,
+                }
+                f.write(json.dumps(record, ensure_ascii=False) + "\n")
+                f.flush()
+                live.update(_render_panel())
+
+    try:
+        asyncio.run(_run_crawl())
+    finally:
+        crawler_logger.removeHandler(file_handler)
+        file_handler.close()
+
+    elapsed = time.perf_counter() - t0
+    rate = stats.pages_fetched / max(0.001, elapsed)
+    stdout_console.print(
+        f"[green]Crawled[/green] [bold]{stats.pages_fetched}[/bold] pages in {elapsed:.2f} s "
+        f"([bold]{rate:.1f} pages/s[/bold], errors={stats.errors}) -> [cyan]{out}[/cyan]"
+    )
 
 
 if __name__ == "__main__":

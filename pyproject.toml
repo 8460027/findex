@@ -1,14 +1,16 @@
 [project]
 name = "findex"
-version = "0.5.0"
+version = "0.6.0"
 description = "Memory-efficient streaming search engine with BM25/TF-IDF ranking and rich CLI"
 readme = "README.md"
 authors = [
-    { name = "РњР°СЂС–СЏ", email = "8460027@stud.kai.edu.ua" }
+    { name = "Р СљР В°РЎР‚РЎвЂ“РЎРЏ", email = "8460027@stud.kai.edu.ua" }
 ]
 requires-python = ">=3.12"
 dependencies = [
+    "httpx>=0.28.1",
     "rich>=15.0.0",
+    "selectolax>=1.0.2",
     "typer>=0.29.2",
 ]
 

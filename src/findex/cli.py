@@ -413,5 +413,32 @@ def crawl_cmd(
     )
 
 
+@app.command("serve")
+def serve_cmd(
+    host: Annotated[str, typer.Option("--host", help="Bind socket host.")] = "0.0.0.0",
+    port: Annotated[int, typer.Option("--port", "-p", min=1, max=65535, help="Bind port.")] = 8000,
+    workers: Annotated[
+        int, typer.Option("--workers", "-w", min=1, help="Number of Uvicorn worker processes.")
+    ] = 1,
+    index: Annotated[
+        Path | None,
+        typer.Option(
+            "--index", "-i", help="Path to built index or JSONL corpus (sets INDEX_PATH)."
+        ),
+    ] = None,
+) -> None:
+    """Start the FastAPI search API and web UI server via Uvicorn."""
+    import os
+
+    import uvicorn
+
+    if index is not None:
+        os.environ["INDEX_PATH"] = str(index)
+    os.environ["HOST"] = host
+    os.environ["PORT"] = str(port)
+
+    uvicorn.run("findex.web:app", host=host, port=port, workers=workers)
+
+
 if __name__ == "__main__":
     app()

@@ -1,17 +1,21 @@
 [project]
 name = "findex"
-version = "0.6.0"
+version = "0.7.0"
 description = "Memory-efficient streaming search engine with BM25/TF-IDF ranking and rich CLI"
 readme = "README.md"
 authors = [
-    { name = "Р СљР В°РЎР‚РЎвЂ“РЎРЏ", email = "8460027@stud.kai.edu.ua" }
+    { name = "Р В РЎС™Р В Р’В°Р РЋР вЂљР РЋРІР‚вЂњР РЋР РЏ", email = "8460027@stud.kai.edu.ua" }
 ]
 requires-python = ">=3.12"
 dependencies = [
+    "fastapi>=0.165.0",
     "httpx>=0.28.1",
+    "jinja2>=3.1.6",
+    "pydantic-settings>=2.16.3",
     "rich>=15.0.0",
     "selectolax>=1.0.2",
     "typer>=0.29.2",
+    "uvicorn[standard]>=0.54.0",
 ]
 
 [project.scripts]

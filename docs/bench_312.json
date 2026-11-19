@@ -1,0 +1,109 @@
+{
+  "python": "3.12.1 (tags/v3.12.1:2305ca5, Dec  7 2023, 22:03:25) [MSC v.1937 64 bit (AMD64)]",
+  "gil_enabled": true,
+  "rows": [
+    {
+      "executor": "serial",
+      "workers": 1,
+      "wall": 5.308,
+      "cpu": 5.3125,
+      "rss_mb": 34.4,
+      "merge": 0.0024,
+      "speedup": 1.0
+    },
+    {
+      "executor": "threads",
+      "workers": 2,
+      "wall": 5.564,
+      "cpu": 5.8125,
+      "rss_mb": 34.7,
+      "merge": 0.0027,
+      "speedup": 0.95
+    },
+    {
+      "executor": "threads",
+      "workers": 4,
+      "wall": 5.6119,
+      "cpu": 5.9844,
+      "rss_mb": 35.8,
+      "merge": 0.0027,
+      "speedup": 0.95
+    },
+    {
+      "executor": "threads",
+      "workers": 8,
+      "wall": 5.6958,
+      "cpu": 6.0625,
+      "rss_mb": 38.6,
+      "merge": 0.0029,
+      "speedup": 0.93
+    },
+    {
+      "executor": "threads",
+      "workers": 12,
+      "wall": 5.6764,
+      "cpu": 5.9219,
+      "rss_mb": 40.5,
+      "merge": 0.0032,
+      "speedup": 0.94
+    },
+    {
+      "executor": "processes",
+      "workers": 2,
+      "wall": 3.0211,
+      "cpu": 0.1094,
+      "rss_mb": 40.5,
+      "merge": 0.0024,
+      "speedup": 1.76
+    },
+    {
+      "executor": "processes",
+      "workers": 4,
+      "wall": 1.7142,
+      "cpu": 0.125,
+      "rss_mb": 40.5,
+      "merge": 0.0034,
+      "speedup": 3.1
+    },
+    {
+      "executor": "processes",
+      "workers": 8,
+      "wall": 1.4374,
+      "cpu": 0.1406,
+      "rss_mb": 40.5,
+      "merge": 0.0041,
+      "speedup": 3.69
+    },
+    {
+      "executor": "processes",
+      "workers": 12,
+      "wall": 1.4468,
+      "cpu": 0.2031,
+      "rss_mb": 40.5,
+      "merge": 0.0036,
+      "speedup": 3.67
+    }
+  ],
+  "io_rows": [
+    [
+      1,
+      0.1582685001194477,
+      1.0
+    ],
+    [
+      2,
+      0.14845059998333454,
+      1.0661358063707076
+    ],
+    [
+      4,
+      0.12474319990724325,
+      1.2687545312059756
+    ],
+    [
+      8,
+      0.11980640050023794,
+      1.3210354326531442
+    ]
+  ]
+}

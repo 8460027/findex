@@ -1,0 +1,57 @@
+{
+  "python": "3.13.18 experimental free-threading build (main, Nov 11 2026, 00:20:57) [MSC v.1944 64 bit (AMD64)]",
+  "gil_enabled": false,
+  "rows": [
+    {
+      "executor": "serial",
+      "workers": 1,
+      "wall": 5.312,
+      "cpu": 5.2812,
+      "rss_mb": 0.0,
+      "merge": 0.0028,
+      "speedup": 1.0
+    },
+    {
+      "executor": "threads",
+      "workers": 2,
+      "wall": 2.8803,
+      "cpu": 5.6094,
+      "rss_mb": 0.0,
+      "merge": 0.0037,
+      "speedup": 1.84
+    },
+    {
+      "executor": "threads",
+      "workers": 4,
+      "wall": 1.7652,
+      "cpu": 6.6719,
+      "rss_mb": 0.0,
+      "merge": 0.0105,
+      "speedup": 3.01
+    },
+    {
+      "executor": "threads",
+      "workers": 8,
+      "wall": 1.4503,
+      "cpu": 10.5,
+      "rss_mb": 0.0,
+      "merge": 0.0111,
+      "speedup": 3.66
+    },
+    {
+      "executor": "threads",
+      "workers": 12,
+      "wall": 1.4044,
+      "cpu": 13.9219,
+      "rss_mb": 0.0,
+      "merge": 0.0121,
+      "speedup": 3.78
+    }
+  ],
+  "race": {
+    "expected": 960400,
+    "unsafe_total": 867756,
+    "unsafe_vocab_sum": 781860,
+    "safe_total": 960400
+  }
+}

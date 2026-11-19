@@ -15,7 +15,7 @@ from rich.markup import escape
 from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from rich.table import Table
 
-from findex.index import build_index
+from findex.index import BuildTiming, ExecutorType, build_index
 from findex.query import QuerySyntaxError
 from findex.search import SearchEngine
 from findex.stats import run_lazy_stats
@@ -43,6 +43,12 @@ class FormatChoice(StrEnum):
     binary = "binary"
     json = "json"
     pickle = "pickle"
+
+
+class ExecutorChoice(StrEnum):
+    serial = "serial"
+    threads = "threads"
+    processes = "processes"
 
 
 def _configure_logging(verbosity: int) -> None:
@@ -104,6 +110,14 @@ def index_cmd(
     limit: Annotated[
         int | None, typer.Option("--limit", "-l", help="Index at most N documents.")
     ] = None,
+    executor: Annotated[
+        ExecutorChoice,
+        typer.Option("--executor", "-e", help="Execution backend (serial, threads, processes)."),
+    ] = ExecutorChoice.processes,
+    workers: Annotated[
+        int | None,
+        typer.Option("--workers", "-w", min=1, help="Number of worker threads/processes."),
+    ] = None,
 ) -> None:
     """Build and save an inverted index from a document corpus."""
     if not corpus.exists():
@@ -111,7 +125,9 @@ def index_cmd(
         raise typer.Exit(code=1)
 
     t0 = time.perf_counter()
+    timings: BuildTiming = {"map_seconds": 0.0, "merge_seconds": 0.0, "total_seconds": 0.0}
     try:
+        exec_backend: ExecutorType = executor.value  # type: ignore[assignment]  # StrEnum matches ExecutorType literals
         with Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
@@ -119,8 +135,15 @@ def index_cmd(
             console=stderr_console,
             transient=True,
         ) as progress:
-            progress.add_task(f"Indexing {corpus}...", total=None)
-            idx = build_index(corpus, with_positions=positions, limit=limit)
+            progress.add_task(f"Indexing {corpus} ({exec_backend})...", total=None)
+            idx = build_index(
+                corpus,
+                with_positions=positions,
+                limit=limit,
+                executor=exec_backend,
+                workers=workers,
+                timings_out=timings,
+            )
             save_index(idx, out, fmt=fmt.value)  # type: ignore[arg-type]  # StrEnum matches FormatType literals
     except OSError as exc:
         stderr_console.print(f"[bold red]Error:[/bold red] Failed to build/save index: {exc}")
@@ -129,17 +152,19 @@ def index_cmd(
     elapsed = time.perf_counter() - t0
     size_mb = out.stat().st_size / (1024 * 1024)
     log.info(
-        "Indexed %d docs (%d terms) into %s (%.2f MB) in %.3f s",
+        "Indexed %d docs (%d terms) into %s (%.2f MB) in %.3f s [map=%.3fs, merge=%.3fs]",
         idx.num_docs,
         len(idx),
         out,
         size_mb,
         elapsed,
+        timings["map_seconds"],
+        timings["merge_seconds"],
     )
     stdout_console.print(
         f"[green]Indexed[/green] [bold]{idx.num_docs}[/bold] documents "
         f"([bold]{len(idx)}[/bold] unique terms) -> [cyan]{out}[/cyan] "
-        f"({size_mb:.2f} MB in {elapsed:.3f} s)"
+        f"({size_mb:.2f} MB in {elapsed:.3f} s, executor={executor.value})"
     )
 
 

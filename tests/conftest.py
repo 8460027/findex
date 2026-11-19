@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+_SRC = Path(__file__).resolve().parents[1] / "src"
+if str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
 import json
 from pathlib import Path
 
@@ -30,7 +36,7 @@ def sample_corpus_dir(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     (corpus / "doc3.txt").write_text(
-        "Швидкий пошуковий рушій на Python підтримує українську мову, апостроф п'ять та дефіс.",
+        "РЁРІРёРґРєРёР№ РїРѕС€СѓРєРѕРІРёР№ СЂСѓС€С–Р№ РЅР° Python РїС–РґС‚СЂРёРјСѓС” СѓРєСЂР°С—РЅСЃСЊРєСѓ РјРѕРІСѓ, Р°РїРѕСЃС‚СЂРѕС„ Рї'СЏС‚СЊ С‚Р° РґРµС„С–СЃ.",
         encoding="utf-8",
     )
     jsonl_records = [

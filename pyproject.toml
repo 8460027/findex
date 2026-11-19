@@ -1,10 +1,10 @@
 [project]
 name = "findex"
-version = "0.4.0"
+version = "0.5.0"
 description = "Memory-efficient streaming search engine with BM25/TF-IDF ranking and rich CLI"
 readme = "README.md"
 authors = [
-    { name = "Марія", email = "8460027@stud.kai.edu.ua" }
+    { name = "РњР°СЂС–СЏ", email = "8460027@stud.kai.edu.ua" }
 ]
 requires-python = ">=3.12"
 dependencies = [
@@ -22,6 +22,8 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "hypothesis>=6.170.15",
+    "matplotlib>=3.11.2",
+    "psutil>=7.2.2",
     "pyright>=1.1.414",
     "pytest>=9.2.0",
     "pytest-cov>=7.1.0",

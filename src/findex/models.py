@@ -16,6 +16,13 @@ class DocMeta:
 
 
 @dataclass(slots=True)
+class PartialIndex:
+    postings: dict[str, list[Posting]]
+    doc_lengths: dict[int, int]
+    doc_meta: dict[int, DocMeta]
+
+
+@dataclass(slots=True)
 class InvertedIndex:
     postings: dict[str, list[Posting]]
     doc_lengths: dict[int, int]

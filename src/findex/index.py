@@ -19,6 +19,9 @@ from itertools import islice
 from pathlib import Path
 from typing import Any, Literal, NamedTuple, TypedDict, cast
 
+import numpy as np
+from numpy.typing import NDArray
+
 from findex.corpus import iter_documents
 from findex.decorators import timed
 from findex.models import DocMeta, PartialIndex, Posting
@@ -89,6 +92,44 @@ class Index(Mapping[str, list[Posting]]):
     def df(self, term: str) -> int:
         postings = self.postings.get(term)
         return len(postings) if postings is not None else 0
+
+    @functools.cached_property
+    def max_doc_id(self) -> int:
+        if not self.doc_lengths:
+            return -1
+        return max(self.doc_lengths)
+
+    @functools.cached_property
+    def doc_lengths_array(self) -> NDArray[np.int32]:
+        size = self.max_doc_id + 1
+        if size <= 0:
+            return np.empty(0, dtype=np.int32)
+        arr = np.zeros(size, dtype=np.int32)
+        for doc_id, length in self.doc_lengths.items():
+            if doc_id >= 0:
+                arr[doc_id] = length
+        return arr
+
+    def postings_arrays(self, term: str) -> tuple[NDArray[np.int32], NDArray[np.int32]]:
+        cache: dict[str, tuple[NDArray[np.int32], NDArray[np.int32]]] | None = getattr(
+            self, "_np_postings_cache", None
+        )
+        if cache is None:
+            cache = {}
+            self._np_postings_cache = cache
+        cached = cache.get(term)
+        if cached is not None:
+            return cached
+        plist = self.postings.get(term)
+        if not plist:
+            empty = (np.empty(0, dtype=np.int32), np.empty(0, dtype=np.int32))
+            cache[term] = empty
+            return empty
+        doc_ids = np.fromiter((p.doc_id for p in plist), dtype=np.int32, count=len(plist))
+        tfs = np.fromiter((p.tf for p in plist), dtype=np.int32, count=len(plist))
+        pair = (doc_ids, tfs)
+        cache[term] = pair
+        return pair
 
     def close(self) -> None:
         """Release index resources."""
